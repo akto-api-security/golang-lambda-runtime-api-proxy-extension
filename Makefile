@@ -1,9 +1,10 @@
 BASENAME := $(shell basename $(CURDIR))
 ARTIFACTS_DIR ?= out
-targetArch := amd64
+targetArch := YOUR_LAMBDA_FUNCTION_ARCHITECTURE # e.g., arm64 or amd64 (a.k.a. x86_64)
 extensionName := golang-lambda-runtime-api-proxy-extension
-FUNCTION_NAME := python-lambda
+FUNCTION_NAME := YOUR_LAMBDA_FUNCTION_NAME
 LAYER_NAME := $(extensionName)-layer
+AKTO_MIRRORING_URL := YOUR_AKTO_MIRRORING_URL
 
 all: build-GolangRuntimeApiProxyExtensionLayer
 
@@ -42,7 +43,7 @@ updateFunctionConfiguration: publishLayerVersion
 	aws lambda update-function-configuration \
 		--function-name $(FUNCTION_NAME) \
 		--layers $(LAYER_VERSION_ARN) \
-		--environment 'Variables={AWS_LAMBDA_EXEC_WRAPPER=/opt/wrapper-script.sh,AKTO_MIRRORING_URL=https://e7ed-2404-ba00-fd01-c375-259b-1149-45f-819c.ngrok-free.app/api/ingestData}'
+		--environment 'Variables={AWS_LAMBDA_EXEC_WRAPPER=/opt/wrapper-script.sh,AKTO_MIRRORING_URL=${AKTO_MIRRORING_URL}}'
 
 .PHONY: all-and-publish
 all-and-publish: build-GolangRuntimeApiProxyExtensionLayer updateFunctionConfiguration
