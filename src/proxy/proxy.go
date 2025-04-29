@@ -43,7 +43,7 @@ const (
 var (
 	awsLambdaRuntimeAPI string
 	client = &http.Client{}
-	currentMirrorData *MirrorData
+	currentMirrorData = make(map[string]*MirrorData)
 )
 
 var Wg sync.WaitGroup
@@ -88,7 +88,7 @@ func StartProxy(endpoint string, port int) {
 func handleNext(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if rec := recover(); rec != nil {
-			println(printPrefix, "Recovered from panic in handleNext:", rec)
+			fmt.Printf("%s Recovered from panic in handleNext: %v", printPrefix, rec)
 		}
 	}()
 
@@ -110,6 +110,8 @@ func handleNext(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body, headers := processRequest(body, resp.Header)
+
+	requestId := resp.Header.Get("Lambda-Runtime-Aws-Request-Id")
 
 	var bodyData map[string]interface{}
 	err = json.Unmarshal(body, &bodyData)
@@ -142,7 +144,6 @@ func handleNext(w http.ResponseWriter, r *http.Request) {
 	}
 
 	contentType, _ := getHeaderCaseInsensitive(requestHeaders, "Content-Type")
-	println(printPrefix, "Content-Type:", contentType)
 
 	if(strings.Contains(contentType, "application/json")) {
 		headersJSON, err := json.MarshalIndent(requestHeaders, "", "   ")
@@ -155,7 +156,7 @@ func handleNext(w http.ResponseWriter, r *http.Request) {
 		now := fmt.Sprintf("%d", makeTimestampSeconds())
 		ip, _ := requestHeaders["X-Forwarded-For"].(string)
 
-		currentMirrorData = &MirrorData{
+		currentMirrorData[requestId] = &MirrorData{
 			Path:            path,
 			RequestHeaders:  headersString,
 			Method:          httpMethod,
@@ -194,7 +195,8 @@ func handleResponse(w http.ResponseWriter, r *http.Request) {
 	url := fmt.Sprintf("http://%s/2018-06-01/runtime/invocation/%s/response", awsLambdaRuntimeAPI, requestId)
 	bodyBuffer := io.NopCloser(bytes.NewReader(body))
 
-	if currentMirrorData != nil {
+	mirrorData, ok := currentMirrorData[requestId]
+	if ok && mirrorData != nil {
 		var respData map[string]interface{}
 		err := json.Unmarshal(body, &respData)
 		if err != nil {
@@ -203,31 +205,33 @@ func handleResponse(w http.ResponseWriter, r *http.Request) {
 			if b, ok := respData["body"].(string); ok {
 				unquotedBody, err := strconv.Unquote(b)
 				if err == nil {
-					currentMirrorData.ResponsePayload = unquotedBody
+					mirrorData.ResponsePayload = unquotedBody
 				} else {
-					currentMirrorData.ResponsePayload = b
+					mirrorData.ResponsePayload = b
 				}
 			}
 
 			if h, ok := respData["headers"].(map[string]interface{}); ok {
 				headersJson, _ := json.Marshal(h)
-				currentMirrorData.ResponseHeaders = string(headersJson)
+				mirrorData.ResponseHeaders = string(headersJson)
 			}
 
 			if s, ok := respData["statusCode"].(float64); ok {
-				currentMirrorData.StatusCode = fmt.Sprintf("%.0f", s)
-				currentMirrorData.Status = getStatusText(int(s))
+				mirrorData.StatusCode = fmt.Sprintf("%.0f", s)
+				mirrorData.Status = getStatusText(int(s))
 			}
 
-			currentMirrorData.Type = "HTTP/1.1"
+			mirrorData.Type = "HTTP/1.1"
 		}
 	}
+
+	delete(currentMirrorData, requestId)
 
 	proxyPost(w, headers, url, bodyBuffer)
 	println(printPrefix, "handleResponse posted")
 	if(currentMirrorData != nil) {
 		Wg.Add(1)
-		sendMirrorData(currentMirrorData)
+		sendMirrorData(mirrorData)
 		Wg.Wait()
 	}
 }
@@ -400,7 +404,6 @@ func sendMirrorData(mirrorData *MirrorData) {
 		println(printPrefix, "Response from backend:", resp.Status)
 		defer resp.Body.Close()
 		defer Wg.Done()
-		currentMirrorData = nil
 	}()
 
 	println(printPrefix, "Successfully sent mirror data.")
