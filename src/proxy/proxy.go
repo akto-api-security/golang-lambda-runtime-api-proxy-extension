@@ -370,9 +370,14 @@ func processResponse(body []byte, headers http.Header) ([]byte, http.Header) {
 
 
 func sendMirrorData(mirrorData *MirrorData) {
+	if(mirrorData == nil) {
+		println(printPrefix, "mirrorData is null.")
+		return
+	}
+
 	defer func() {
 		if rec := recover(); rec != nil {
-			println(printPrefix, "Recovered from panic in sendMirrorData:", rec)
+			fmt.Printf("%s Recovered from panic in sendMirrorData: %+v", printPrefix, rec)
 		}
 	}()
 
@@ -383,14 +388,14 @@ func sendMirrorData(mirrorData *MirrorData) {
 
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
-		println(printPrefix, "Error marshaling mirror data:", err)
+		fmt.Printf("%s Error marshaling mirror data: %+v", printPrefix, err)
 		return
 	}
 
 	url := os.Getenv("AKTO_MIRRORING_URL")
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
 	if err != nil {
-		println(printPrefix, "Error creating request to backend:", err)
+		fmt.Printf("%s Error creating request to backend: %+v", printPrefix, err)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -398,7 +403,7 @@ func sendMirrorData(mirrorData *MirrorData) {
 	go func() {
 		resp, err := client.Do(req)
 		if err != nil {
-			println(printPrefix, "Error sending data to backend:", err)
+			fmt.Printf("%s Error sending data to backend: %+v", printPrefix, err)
 			return
 		}
 		println(printPrefix, "Response from backend:", resp.Status)
