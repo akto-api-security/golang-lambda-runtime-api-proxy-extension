@@ -143,31 +143,27 @@ func handleNext(w http.ResponseWriter, r *http.Request) {
 		requestHeaders = make(map[string]interface{})
 	}
 
-	contentType, _ := getHeaderCaseInsensitive(requestHeaders, "Content-Type")
+	headersJSON, err := json.MarshalIndent(requestHeaders, "", "   ")
+	if err != nil {
+		headersJSON = []byte("")
+		println(printPrefix, "Error marshaling headers:", err)
+	}
 
-	if(strings.Contains(contentType, "application/json")) {
-		headersJSON, err := json.MarshalIndent(requestHeaders, "", "   ")
-		if err != nil {
-			headersJSON = []byte("")
-			println(printPrefix, "Error marshaling headers:", err)
-		}
+	headersString := string(headersJSON)
+	now := fmt.Sprintf("%d", makeTimestampSeconds())
+	ip, _ := requestHeaders["X-Forwarded-For"].(string)
 
-		headersString := string(headersJSON)
-		now := fmt.Sprintf("%d", makeTimestampSeconds())
-		ip, _ := requestHeaders["X-Forwarded-For"].(string)
-
-		currentMirrorData[requestId] = &MirrorData{
-			Path:            path,
-			RequestHeaders:  headersString,
-			Method:          httpMethod,
-			RequestPayload:  bodyContent,
-			IP:              ip,
-			Time:            now,
-			AktoAccountId:   "1000000",
-			AktoVxlanId:     "0",
-			IsPending:       "false",
-			Source:          "MIRRORING",
-		}
+	currentMirrorData[requestId] = &MirrorData{
+		Path:            path,
+		RequestHeaders:  headersString,
+		Method:          httpMethod,
+		RequestPayload:  bodyContent,
+		IP:              ip,
+		Time:            now,
+		AktoAccountId:   "1000000",
+		AktoVxlanId:     "0",
+		IsPending:       "false",
+		Source:          "MIRRORING",
 	}
 
 	finalizeResponse(w, body, headers)

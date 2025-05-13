@@ -40,16 +40,23 @@ publishLayerVersion:
 .PHONY: updateFunctionConfiguration
 updateFunctionConfiguration: publishLayerVersion
 	@echo "> updateFunctionConfiguration"
+	$(eval EXISTING_LAYERS_JSON := $(shell aws lambda get-function-configuration \
+		--function-name $(FUNCTION_NAME) \
+		--output json))
+	$(eval FILTERED_LAYERS := $(shell echo '$(EXISTING_LAYERS_JSON)' \
+		| jq -r '.Layers[].Arn' \
+		| grep -v '$(LAYER_NAME)'))
+	$(eval UPDATED_LAYERS := $(FILTERED_LAYERS) $(LAYER_VERSION_ARN))
 	$(eval EXISTING_ENV := $(shell aws lambda get-function-configuration \
 		--function-name $(FUNCTION_NAME) \
 		--query 'Environment.Variables' \
 		--output json))
-	$(eval MERGED_ENV := $(shell echo '$(EXISTING_ENV)' | jq -r \
-		'to_entries | map("\(.key)=\(.value | @sh)") | join(",")'))
+	$(eval MERGED_ENV := $(shell echo '$(EXISTING_ENV)' \
+		| jq -r 'to_entries | map("\(.key)=\(.value | @sh)") | join(",")'))
 	$(eval MERGED_ENV := $(MERGED_ENV),AWS_LAMBDA_EXEC_WRAPPER=/opt/wrapper-script.sh,AKTO_MIRRORING_URL=$(AKTO_MIRRORING_URL))
 	aws lambda update-function-configuration \
 		--function-name $(FUNCTION_NAME) \
-		--layers $(LAYER_VERSION_ARN) \
+		--layers $(UPDATED_LAYERS) \
 		--environment "Variables={$(MERGED_ENV)}"
 
 .PHONY: all-and-publish
