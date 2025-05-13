@@ -40,10 +40,17 @@ publishLayerVersion:
 .PHONY: updateFunctionConfiguration
 updateFunctionConfiguration: publishLayerVersion
 	@echo "> updateFunctionConfiguration"
+	$(eval EXISTING_ENV := $(shell aws lambda get-function-configuration \
+		--function-name $(FUNCTION_NAME) \
+		--query 'Environment.Variables' \
+		--output json))
+	$(eval MERGED_ENV := $(shell echo '$(EXISTING_ENV)' | jq -r \
+		'to_entries | map("\(.key)=\(.value | @sh)") | join(",")'))
+	$(eval MERGED_ENV := $(MERGED_ENV),AWS_LAMBDA_EXEC_WRAPPER=/opt/wrapper-script.sh,AKTO_MIRRORING_URL=$(AKTO_MIRRORING_URL))
 	aws lambda update-function-configuration \
 		--function-name $(FUNCTION_NAME) \
 		--layers $(LAYER_VERSION_ARN) \
-		--environment 'Variables={AWS_LAMBDA_EXEC_WRAPPER=/opt/wrapper-script.sh,AKTO_MIRRORING_URL=${AKTO_MIRRORING_URL}}'
+		--environment "Variables={$(MERGED_ENV)}"
 
 .PHONY: all-and-publish
 all-and-publish: build-GolangRuntimeApiProxyExtensionLayer updateFunctionConfiguration
