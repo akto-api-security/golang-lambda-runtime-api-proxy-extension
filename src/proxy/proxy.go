@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -42,7 +43,11 @@ const (
 
 var (
 	awsLambdaRuntimeAPI string
-	client = &http.Client{}
+	tr = &http.Transport{
+        TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+    }
+
+    client = &http.Client{Transport: tr}
 	currentMirrorData = make(map[string]*MirrorData)
 )
 
