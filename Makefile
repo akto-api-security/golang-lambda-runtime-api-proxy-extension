@@ -47,12 +47,15 @@ updateFunctionConfiguration: publishLayerVersion
 		| jq -r '.Layers[].Arn' \
 		| grep -v '$(LAYER_NAME)'))
 	$(eval UPDATED_LAYERS := $(FILTERED_LAYERS) $(LAYER_VERSION_ARN))
-	$(eval EXISTING_ENV := $(shell aws lambda get-function-configuration \
+		$(eval EXISTING_ENV := $(shell aws lambda get-function-configuration \
 		--function-name $(FUNCTION_NAME) \
 		--query 'Environment.Variables' \
 		--output json))
-	$(eval MERGED_ENV := $(shell echo '$(EXISTING_ENV)' \
-		| jq -r 'to_entries | map("\(.key)=\(.value | @sh)") | join(",")'))
+	$(eval MERGED_ENV := $(shell jq -n \
+		--argjson existing '$(EXISTING_ENV)' \
+		--arg wrapper "/opt/wrapper-script.sh" \
+		--arg url "$(AKTO_MIRRORING_URL)" \
+		'($$existing // {}) + {AWS_LAMBDA_EXEC_WRAPPER: $$wrapper, AKTO_MIRRORING_URL: $$url} | to_entries | map("\(.key)=\(.value | @sh)") | join(",")'))
 	$(eval MERGED_ENV := $(MERGED_ENV),AWS_LAMBDA_EXEC_WRAPPER=/opt/wrapper-script.sh,AKTO_MIRRORING_URL=$(AKTO_MIRRORING_URL))
 	aws lambda update-function-configuration \
 		--function-name $(FUNCTION_NAME) \
