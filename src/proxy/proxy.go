@@ -130,15 +130,28 @@ func handleNext(w http.ResponseWriter, r *http.Request) {
 		bodyContent = ""
 	}
 
-	path := ""
-	requestContext, ok := bodyData["requestContext"].(map[string]interface{})
-	if ok {
-		path, _ = requestContext["path"].(string)
-	} else {
-		path, _ = bodyData["path"].(string)
-	}
+	var path, httpMethod, ip string
 
-	httpMethod, _ := bodyData["httpMethod"].(string)
+	// Try HTTP API Gateway v2 format first
+	if requestContext, ok := bodyData["requestContext"].(map[string]interface{}); ok {
+		if httpCtx, ok := requestContext["http"].(map[string]interface{}); ok {
+			path, _ = httpCtx["path"].(string)
+			httpMethod, _ = httpCtx["method"].(string)
+			ip, _ = httpCtx["sourceIp"].(string)
+		} else {
+			// fallback for REST API Gateway
+			path, _ = bodyData["path"].(string)
+			httpMethod, _ = bodyData["httpMethod"].(string)
+			headers, _ := bodyData["headers"].(map[string]interface{})
+			ip, _ = getHeaderCaseInsensitive(headers, "X-Forwarded-For")
+		}
+	} else {
+		// fallback in case requestContext is absent
+		path, _ = bodyData["path"].(string)
+		httpMethod, _ = bodyData["httpMethod"].(string)
+		headers, _ := bodyData["headers"].(map[string]interface{})
+		ip, _ = getHeaderCaseInsensitive(headers, "X-Forwarded-For")
+	}
 
 	var requestHeaders map[string]interface{}
 	if headers, ok := bodyData["headers"].(map[string]interface{}); ok {
@@ -156,7 +169,9 @@ func handleNext(w http.ResponseWriter, r *http.Request) {
 
 	headersString := string(headersJSON)
 	now := fmt.Sprintf("%d", makeTimestampSeconds())
-	ip, _ := requestHeaders["X-Forwarded-For"].(string)
+	if len(ip) == 0 {
+		ip, _ = requestHeaders["X-Forwarded-For"].(string)
+	}
 
 	currentMirrorData[requestId] = &MirrorData{
 		Path:            path,
@@ -282,6 +297,7 @@ func copyHeaders(original http.Header, target http.Header) {
 }
 
 func finalizeResponse(w http.ResponseWriter, body []byte, headers http.Header) {
+	w.Header().Set("Content-Type", "application/json")
 	copyHeaders(headers, w.Header())
 	_, err := w.Write(body)
 	if err != nil {
