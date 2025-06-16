@@ -131,34 +131,67 @@ func handleNext(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var path, httpMethod, ip string
+	var requestHeaders map[string]interface{}
 
-	// Try HTTP API Gateway v2 format first
-	if requestContext, ok := bodyData["requestContext"].(map[string]interface{}); ok {
-		if httpCtx, ok := requestContext["http"].(map[string]interface{}); ok {
-			path, _ = httpCtx["path"].(string)
-			httpMethod, _ = httpCtx["method"].(string)
-			ip, _ = httpCtx["sourceIp"].(string)
+	// --- STEP 1: Prefer akto_data if present ---
+	if aktoData, ok := bodyData["akto_data"].(map[string]interface{}); ok {
+		path, _ = aktoData["path"].(string)
+		httpMethod, _ = aktoData["method"].(string)
+		ip, _ = aktoData["ip"].(string)
+
+		if headers, ok := aktoData["requestHeaders"].(map[string]interface{}); ok {
+			requestHeaders = headers
+		}
+
+		if payload, ok := aktoData["requestPayload"].(string); ok {
+			bodyContent = payload
+		}
+
+	} else {
+		// --- STEP 2: Fallback to standard method ---
+		if val, ok := bodyData["body"].(string); ok {
+			bodyContent = val
 		} else {
-			// fallback for REST API Gateway
+			jsonBytes, err := json.Marshal(bodyData)
+			if err != nil {
+				bodyContent = ""
+			} else {
+				bodyContent = string(jsonBytes)
+			}
+		}
+
+		if requestContext, ok := bodyData["requestContext"].(map[string]interface{}); ok {
+			if httpCtx, ok := requestContext["http"].(map[string]interface{}); ok {
+				path, _ = httpCtx["path"].(string)
+				httpMethod, _ = httpCtx["method"].(string)
+				ip, _ = httpCtx["sourceIp"].(string)
+			} else {
+				path, _ = bodyData["path"].(string)
+				httpMethod, _ = bodyData["httpMethod"].(string)
+				headers, _ := bodyData["headers"].(map[string]interface{})
+				ip, _ = getHeaderCaseInsensitive(headers, "X-Forwarded-For")
+			}
+		} else {
 			path, _ = bodyData["path"].(string)
 			httpMethod, _ = bodyData["httpMethod"].(string)
 			headers, _ := bodyData["headers"].(map[string]interface{})
 			ip, _ = getHeaderCaseInsensitive(headers, "X-Forwarded-For")
 		}
-	} else {
-		// fallback in case requestContext is absent
-		path, _ = bodyData["path"].(string)
-		httpMethod, _ = bodyData["httpMethod"].(string)
-		headers, _ := bodyData["headers"].(map[string]interface{})
-		ip, _ = getHeaderCaseInsensitive(headers, "X-Forwarded-For")
+
+		if headers, ok := bodyData["headers"].(map[string]interface{}); ok {
+			requestHeaders = headers
+		} else {
+			requestHeaders = make(map[string]interface{})
+		}
 	}
 
-	var requestHeaders map[string]interface{}
-	if headers, ok := bodyData["headers"].(map[string]interface{}); ok {
-		requestHeaders = headers
-	} else {
-		println(printPrefix, "Headers are nil or not in expected format.")
-		requestHeaders = make(map[string]interface{})
+	if(len(requestHeaders) == 0) {
+		if headers, ok := bodyData["headers"].(map[string]interface{}); ok {
+			requestHeaders = headers
+		} else {
+			println(printPrefix, "Headers are nil or not in expected format.")
+			requestHeaders = make(map[string]interface{})
+		}
 	}
 
 	headersJSON, err := json.MarshalIndent(requestHeaders, "", "   ")
@@ -225,6 +258,21 @@ func handleResponse(w http.ResponseWriter, r *http.Request) {
 				} else {
 					mirrorData.ResponsePayload = b
 				}
+
+				mirrorData.Type = "HTTP/1.1"
+			} else {
+				if mirrorData.ResponsePayload == "" {
+					mirrorData.ResponsePayload = toJsonString(respData)
+				}
+				if mirrorData.StatusCode == "" {
+					mirrorData.StatusCode = "200"
+				}
+				if mirrorData.Status == "" {
+					mirrorData.Status = "OK"
+				}
+				if mirrorData.Type == "" {
+					mirrorData.Type = "HTTP/2"
+				}
 			}
 
 			if h, ok := respData["headers"].(map[string]interface{}); ok {
@@ -236,8 +284,6 @@ func handleResponse(w http.ResponseWriter, r *http.Request) {
 				mirrorData.StatusCode = fmt.Sprintf("%.0f", s)
 				mirrorData.Status = getStatusText(int(s))
 			}
-
-			mirrorData.Type = "HTTP/1.1"
 		}
 	}
 
@@ -499,4 +545,9 @@ func getHeaderCaseInsensitive(headers map[string]interface{}, key string) (strin
         }
     }
     return "", false
+}
+
+func toJsonString(v interface{}) string {
+    bytes, _ := json.Marshal(v)
+    return string(bytes)
 }
