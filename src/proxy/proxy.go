@@ -34,6 +34,7 @@ type MirrorData struct {
 	AktoVxlanId     string `json:"akto_vxlan_id"`
 	IsPending       string `json:"is_pending"`
 	Source          string `json:"source"`
+	TrafficSource          string `json:"traffic_source"`
 }
 
 
@@ -184,6 +185,7 @@ func handleNext(w http.ResponseWriter, r *http.Request) {
 		AktoVxlanId:     "0",
 		IsPending:       "false",
 		Source:          "MIRRORING",
+		TrafficSource:   "Lambda",
 	}
 
 	finalizeResponse(w, body, headers)
