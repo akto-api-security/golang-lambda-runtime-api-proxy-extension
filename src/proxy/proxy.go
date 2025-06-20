@@ -34,6 +34,7 @@ type MirrorData struct {
 	AktoVxlanId     string `json:"akto_vxlan_id"`
 	IsPending       string `json:"is_pending"`
 	Source          string `json:"source"`
+	Tag          string `json:"tag"`
 }
 
 
@@ -217,6 +218,7 @@ func handleNext(w http.ResponseWriter, r *http.Request) {
 		AktoVxlanId:     "0",
 		IsPending:       "false",
 		Source:          "MIRRORING",
+		Tag:			 "{\n  \"service\": \"lambda\"\n}",
 	}
 
 	finalizeResponse(w, body, headers)
