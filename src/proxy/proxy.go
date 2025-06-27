@@ -144,8 +144,13 @@ func handleNext(w http.ResponseWriter, r *http.Request) {
 			requestHeaders = headers
 		}
 
-		if payload, ok := aktoData["requestPayload"].(string); ok {
-			bodyContent = payload
+		if payloadMap, ok := aktoData["requestPayload"].(map[string]interface{}); ok {
+			jsonBytes, err := json.Marshal(payloadMap)
+			if err != nil {
+				fmt.Println("Error marshaling requestPayload:", err)
+			} else {
+				bodyContent = string(jsonBytes)
+			}
 		}
 
 	} else {
@@ -248,23 +253,53 @@ func handleResponse(w http.ResponseWriter, r *http.Request) {
 
 	mirrorData, ok := currentMirrorData[requestId]
 	if ok && mirrorData != nil {
-		var respData map[string]interface{}
-		err := json.Unmarshal(body, &respData)
+		var jsonBody interface{}
+		err := json.Unmarshal(body, &jsonBody)
 		if err != nil {
 			println(printPrefix, "Failed to parse response body:", err)
 		} else {
-			if b, ok := respData["body"].(string); ok {
-				unquotedBody, err := strconv.Unquote(b)
-				if err == nil {
-					mirrorData.ResponsePayload = unquotedBody
+			// Handle if response is a JSON object
+			if respData, ok := jsonBody.(map[string]interface{}); ok {
+				// Handle HTTP Lambda-style response
+				if b, ok := respData["body"].(string); ok {
+					unquotedBody, err := strconv.Unquote(b)
+					if err == nil {
+						mirrorData.ResponsePayload = unquotedBody
+					} else {
+						mirrorData.ResponsePayload = b
+					}
+					mirrorData.Type = "HTTP/1.1"
 				} else {
-					mirrorData.ResponsePayload = b
+					// General fallback if no "body" field
+					if mirrorData.ResponsePayload == "" {
+						mirrorData.ResponsePayload = toJsonString(respData)
+					}
+					if mirrorData.StatusCode == "" {
+						mirrorData.StatusCode = "200"
+					}
+					if mirrorData.Status == "" {
+						mirrorData.Status = "OK"
+					}
+					if mirrorData.Type == "" {
+						mirrorData.Type = "HTTP/2"
+					}
 				}
 
-				mirrorData.Type = "HTTP/1.1"
+				// Headers
+				if h, ok := respData["headers"].(map[string]interface{}); ok {
+					headersJson, _ := json.Marshal(h)
+					mirrorData.ResponseHeaders = string(headersJson)
+				}
+
+				// Status code
+				if s, ok := respData["statusCode"].(float64); ok {
+					mirrorData.StatusCode = fmt.Sprintf("%.0f", s)
+					mirrorData.Status = getStatusText(int(s))
+				}
 			} else {
+				// Handle if response is a JSON array or primitive
 				if mirrorData.ResponsePayload == "" {
-					mirrorData.ResponsePayload = toJsonString(respData)
+					mirrorData.ResponsePayload = toJsonString(jsonBody)
 				}
 				if mirrorData.StatusCode == "" {
 					mirrorData.StatusCode = "200"
@@ -275,16 +310,6 @@ func handleResponse(w http.ResponseWriter, r *http.Request) {
 				if mirrorData.Type == "" {
 					mirrorData.Type = "HTTP/2"
 				}
-			}
-
-			if h, ok := respData["headers"].(map[string]interface{}); ok {
-				headersJson, _ := json.Marshal(h)
-				mirrorData.ResponseHeaders = string(headersJson)
-			}
-
-			if s, ok := respData["statusCode"].(float64); ok {
-				mirrorData.StatusCode = fmt.Sprintf("%.0f", s)
-				mirrorData.Status = getStatusText(int(s))
 			}
 		}
 	}
@@ -364,8 +389,8 @@ func readBody(bodyBuffer io.ReadCloser) ([]byte, error) {
 	return body, nil
 }
 
-func unmarshalBody(body []byte) (map[string]interface{}, error) {
-	var temp = make(map[string]interface{})
+func unmarshalBody(body []byte) (interface{}, error) {
+	var temp interface{}
 	err := json.Unmarshal(body, &temp)
 	if err != nil {
 		println(printPrefix, "failed to unmarshal response body:", err)
@@ -405,13 +430,13 @@ func simpleLogger(next http.Handler) http.Handler {
 func processRequest(body []byte, headers http.Header) ([]byte, http.Header) {
 	jsonBody, err := unmarshalBody(body)
 	if err != nil {
-		println(printPrefix, "Error unmarshalling body, returning original body")
+		fmt.Println(printPrefix, "Error unmarshalling body, returning original body")
 		return body, headers
 	}
 
-	newBody, err :=json.Marshal(jsonBody)
+	newBody, err := json.Marshal(jsonBody)
 	if err != nil {
-		println(printPrefix, "Error marshalling body, returning original body")
+		fmt.Println(printPrefix, "Error marshalling body, returning original body")
 		return body, headers
 	}
 	return newBody, headers
@@ -419,17 +444,18 @@ func processRequest(body []byte, headers http.Header) ([]byte, http.Header) {
 
 // Assumes body is a JSON object. Expand as needed
 func processResponse(body []byte, headers http.Header) ([]byte, http.Header) {
-	jsonBody, err := unmarshalBody(body)
-	if err != nil {
-		println(printPrefix, "Error unmarshalling body, returning original body")
+	var jsonBody interface{}
+	if err := json.Unmarshal(body, &jsonBody); err != nil {
+		fmt.Println("Error unmarshalling response body:", err)
 		return body, headers
 	}
 
-	newBody, err :=json.Marshal(jsonBody)
+	newBody, err := json.Marshal(jsonBody)
 	if err != nil {
-		println(printPrefix, "Error marshalling body, returning original body")
+		fmt.Println("Error marshalling response body:", err)
 		return body, headers
 	}
+
 	return newBody, headers
 }
 
