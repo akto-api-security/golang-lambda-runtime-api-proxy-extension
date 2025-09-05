@@ -136,6 +136,7 @@ func handleNext(w http.ResponseWriter, r *http.Request) {
 
 	// --- STEP 1: Prefer akto_data if present ---
 	if aktoData, ok := bodyData["akto_data"].(map[string]interface{}); ok {
+		fmt.Printf("%s Akto data payload: %+v\n", printPrefix, aktoData)
 		path, _ = aktoData["path"].(string)
 		httpMethod, _ = aktoData["method"].(string)
 		ip, _ = aktoData["ip"].(string)
@@ -144,12 +145,19 @@ func handleNext(w http.ResponseWriter, r *http.Request) {
 			requestHeaders = headers
 		}
 
+		fmt.Printf("%s Akto data request payload: %T %+v\n", printPrefix, aktoData["requestPayload"], aktoData["requestPayload"])
 		if payloadMap, ok := aktoData["requestPayload"].(map[string]interface{}); ok {
 			jsonBytes, err := json.Marshal(payloadMap)
 			if err != nil {
 				fmt.Println("Error marshaling requestPayload:", err)
 			} else {
 				bodyContent = string(jsonBytes)
+			}
+		} else {
+			if bodyStr, ok := aktoData["requestPayload"].(string); ok {
+				bodyContent = bodyStr
+			} else {
+				bodyContent = ""
 			}
 		}
 
